@@ -1,6 +1,8 @@
 package com.example.ubersocketservice.configuration;
 
+import com.example.ubersocketservice.interceptors.JwtChannelInterceptor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -9,6 +11,12 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+    private final JwtChannelInterceptor jwtChannelInterceptor;
+
+    public WebSocketConfig(JwtChannelInterceptor jwtChannelInterceptor) {
+        this.jwtChannelInterceptor = jwtChannelInterceptor;
+    }
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // 	Server-to-client broadcasts
@@ -21,5 +29,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // WebSocket handshake endpoint
         registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(jwtChannelInterceptor);
     }
 }
