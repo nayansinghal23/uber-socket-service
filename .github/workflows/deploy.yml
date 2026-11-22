@@ -84,12 +84,26 @@ jobs:
 
             sudo systemctl restart uber-socket-service
 
-            sleep 5
+            echo "Waiting for application to become healthy..."
 
-            sudo systemctl is-active --quiet uber-socket-service
+            for i in $(seq 1 30); do
+              if curl --fail --silent \
+                http://localhost:7480/actuator/health; then
+                echo ""
+                echo "Application is healthy!"
+                exit 0
+              fi
 
-            curl --fail --silent --show-error \
-              http://localhost:7480/actuator/health
+              echo "Attempt $i/30 failed. Retrying in 2 seconds..."
+              sleep 2
+            done
+
+            echo "Application failed to become healthy."
+
+            sudo systemctl status uber-socket-service --no-pager
+            sudo journalctl -u uber-socket-service -n 80 --no-pager
+
+            exit 1
           '
 
       - name: Deployment successful
