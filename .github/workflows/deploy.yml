@@ -1,0 +1,96 @@
+
+name: Build and Deploy Uber Socket Service
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Setup Java 17
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # 3. Build and test application
+      - name: Build Spring Boot application
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean test bootJar
+
+      # 4. Configure SSH
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      # 5. Locate and transfer executable JAR
+      - name: Transfer JAR to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          mapfile -t JARS < <(
+            find build/libs -maxdepth 1 -type f \
+              -name '*.jar' ! -name '*-plain.jar'
+          )
+
+          if [ "${#JARS[@]}" -ne 1 ]; then
+            echo "Expected exactly one executable JAR, found ${#JARS[@]}"
+            exit 1
+          fi
+
+          scp "${JARS[0]}" \
+            "$EC2_USER@$EC2_HOST:/home/ubuntu/uber-socket-service.jar"
+
+      # 6. Deploy and restart systemd service
+      - name: Deploy on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" '
+            set -e
+
+            sudo mv /home/ubuntu/uber-socket-service.jar \
+              /opt/uber-socket-service/uber-socket-service.jar
+
+            sudo chown ubuntu:ubuntu \
+              /opt/uber-socket-service/uber-socket-service.jar
+
+            sudo systemctl restart uber-socket-service
+
+            sleep 5
+
+            sudo systemctl is-active --quiet uber-socket-service
+
+            curl --fail --silent --show-error \
+              http://localhost:7480/actuator/health
+          '
+
+      - name: Deployment successful
+        run: echo "Uber Socket Service deployed successfully!"
